@@ -1,0 +1,59 @@
+import pandas as pd
+import requests
+from geopy.distance import geodesic
+
+def get_coordinates(address, api_key):
+    base_url = 'https://maps.googleapis.com/maps/api/geocode/json'
+    params = {
+        'address': address,
+        'key': api_key
+    }
+    response = requests.get(base_url, params=params)
+    results = response.json().get('results')
+    
+    if results:
+        location = results[0]['geometry']['location']
+        return location['lat'], location['lng']
+    else:
+        return None, None
+
+# Đọc dữ liệu từ tệp CSV
+plan_df = pd.read_csv('plan.csv')
+report_df = pd.read_csv('report.csv')
+
+# API key cho Google Geocoding API
+api_key = 'YOUR_API_KEY'
+
+# Chuyển đổi địa chỉ trong kế hoạch thành tọa độ GPS 
+plan_df['latitude_plan'], plan_df['longitude_plan'] = zip(*plan_df['address'].apply(lambda x: get_coordinates(x, api_key)))
+
+# Hiển thị dữ liệu để kiểm tra
+print(plan_df)
+print(report_df)
+
+# Công thức Haversine
+def haversine_distance(coord1, coord2):
+    return geodesic(coord1, coord2).kilometers
+
+# Tính khoảng cách giữa tọa độ kế hoạch và tọa độ báo cáo
+report_df['distance'] = report_df.apply(
+    lambda row: haversine_distance((row['latitude'], row['longitude']), 
+                                   (plan_df.loc[plan_df['date'] == row['date'], 'latitude_plan'].values[0],
+                                    plan_df.loc[plan_df['date'] == row['date'], 'longitude_plan'].values[0])),
+    axis=1
+)
+
+# Đặt ngưỡng khoảng cách 1km
+distance_threshold = 1.0
+
+# Kiểm tra nếu khoảng cách nhỏ hơn ngưỡng
+report_df['within_area'] = report_df['distance'] <= distance_threshold
+
+# Hiển thị các kết quả không khớp
+mismatch_df = report_df[~report_df['within_area']]
+
+# Lưu kết quả không khớp vào tệp CSV
+mismatch_df.to_csv('mismatch_report.csv', index=False)
+
+# Hiển thị kết quả không khớp
+print(mismatch_df)
